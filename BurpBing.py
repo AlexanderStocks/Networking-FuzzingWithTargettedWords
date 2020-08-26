@@ -1,3 +1,5 @@
+import urllib
+
 from burp import IBurpExtender
 from burp import IContextMenuFactory
 
@@ -5,6 +7,7 @@ from javax.swing import JMenuItem
 
 from py4j.java_gateway import JavaGateway
 from py4j.java_gateway import java_import
+from scapy.tools.generate_ethertypes import URL
 
 gateway = JavaGateway()
 
@@ -14,6 +17,7 @@ url = gateway.jvm.java.net.URL()
 
 import socket
 import urllib3
+from urllib import parse
 import json
 import re
 import base64
@@ -73,3 +77,43 @@ class BurpExtender(IBurpExtender, IContextMenuFactory):
         if domain:
             bing_query_string = "'domain:%s'" % host
             self.bing_query(bing_query_string)
+
+    def bing_query(self, bing_query_string):
+
+        print("Perfoming bing search: %s" % bing_query_string)
+
+        quoted_query = urllib.parse.quote(bing_query_string)
+
+        http_request = "GET https://api.datamarket.azure.com/Bing/Search/Web?$format=json&$top=20&QUery=%s HTTP/1.1\r\n" % quoted_query
+        http_request += "Host: api.datamarket.azure.com\r\n"
+        http_request += "Connection: close\r\n"
+        http_request += "Authorization: Basic %s\r\n" % base64.b64encode(":%s" % bing_api_key)
+        http_request += "User_Agent: Blackhat Python\r\n\r\n"
+
+        # send http request to microsoft servers
+        json_body = self._callbacks.makeHttpRequest("api.datamarket.azure.com", 443, True, http_request).tostring()
+
+        json_body = json_body.split("\r\n\r\n", 1)[1]
+
+        try:
+            r = json.loads(json_body)
+            if len(r["d"]["results"]):
+                for site in r["d"]["results"]:
+                    print("*" * 100)
+                    print(site["Title"])
+                    print(site["Url"])
+                    print(site["Description"])
+                    print("*" * 100)
+
+                    j_url = URL(site["Url"])
+
+            if not self._callbacks.includeInScope(j_url):
+                print("Adding to Burp Scope")
+                self._callbacks.includeInScope(j_url)
+        except LookupError as e:
+            print("No results from bing")
+            pass
+
+        return
+
+
