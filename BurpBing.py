@@ -1,33 +1,24 @@
 import urllib
+from urllib import parse
 
 from burp import IBurpExtender
 from burp import IContextMenuFactory
 
 from javax.swing import JMenuItem
-
-from py4j.java_gateway import JavaGateway
-from py4j.java_gateway import java_import
-from scapy.tools.generate_ethertypes import URL
-
-gateway = JavaGateway()
-
-jList = gateway.jvm.java.util.List()
-jArrayList = gateway.jvm.java.util.ArrayList()
-url = gateway.jvm.java.net.URL()
+from java.util import List, ArrayList
+from java.net import URL
 
 import socket
-import urllib3
-from urllib import parse
 import json
 import re
 import base64
 
 # your bing api key here
-bing_api_key = "KEY"
+bingKey = "KEY"
 
 
 # allows users to right click for context in burp
-class BurpExtender(IBurpExtender, IContextMenuFactory):
+class BurpExtension(IBurpExtender, IContextMenuFactory):
     def registerExtenderCallback(self, callbacks):
         self._callbacks = callbacks
         self._helpers = callbacks.getHeopers()
@@ -40,63 +31,63 @@ class BurpExtender(IBurpExtender, IContextMenuFactory):
 
     def createMenuItems(self, context_menu):
         self.context = context_menu
-        menu_list = gateway.jvm.java.util.ArrayList()
-        menu_list.add(JMenuItem("Send to Bing", actionPerformed=self.bing_menu))
-        return menu_list
+        menus = ArrayList()
+        menus.add(JMenuItem("Send to Bing", actionPerformed=self.bing_menu))
+        return menus
 
     def bing_menu(self, event):
         # get all highlighted messages
-        http_traffic = self.context.getSelectedMessages()
+        traffic = self.context.getSelectedMessages()
 
-        print("%d requests highlighted" % len(http_traffic))
+        print("%d requests highlighted" % len(traffic))
 
-        for traffic in http_traffic:
-            http_service = traffic.getHttpService()
-            host = http_service.getHost()
+        for traffic in traffic:
+            service = traffic.getHttpService()
+            host = service.getHost()
 
             print("User selected host: %s" % host)
 
-            self.bing_search(host)
+            self.search(host)
 
         return
 
-    def bing_search(self, host):
-        is_ip = re.match("[0-9]+(?:\.[0-9]+){3}", host)
+    def search(self, host):
+        maybeIP = re.match("[0-9]+(?:\.[0-9]+){3}", host)
 
-        if is_ip:
-            ip_address = host
+        if maybeIP:
+            IPAddress = host
             domain = False
         else:
-            ip_address = socket.gethostbyname(host)
+            IPAddress = socket.gethostbyname(host)
             domain = True
 
         # search bing for virtual hosts with same IP
-        bing_query_string = "'ip:%s'" % ip_address
-        self.bing_query(bing_query_string)
+        query = "'ip:%s'" % IPAddress
+        self.queryBing(query)
 
         if domain:
-            bing_query_string = "'domain:%s'" % host
-            self.bing_query(bing_query_string)
+            query = "'domain:%s'" % host
+            self.queryBing(query)
 
-    def bing_query(self, bing_query_string):
+    def queryBing(self, query):
 
-        print("Perfoming bing search: %s" % bing_query_string)
+        print("Perfoming bing search: %s" % query)
 
-        quoted_query = urllib.parse.quote(bing_query_string)
+        quotedQuery = urllib.parse.quote(query)
 
-        http_request = "GET https://api.datamarket.azure.com/Bing/Search/Web?$format=json&$top=20&QUery=%s HTTP/1.1\r\n" % quoted_query
-        http_request += "Host: api.datamarket.azure.com\r\n"
-        http_request += "Connection: close\r\n"
-        http_request += "Authorization: Basic %s\r\n" % base64.b64encode(":%s" % bing_api_key)
-        http_request += "User_Agent: Blackhat Python\r\n\r\n"
+        httpReq = "GET https://api.datamarket.azure.com/Bing/Search/Web?$format=json&$top=20&QUery=%s HTTP/1.1\r\n" % quotedQuery
+        httpReq += "Host: api.datamarket.azure.com\r\n"
+        httpReq += "Connection: close\r\n"
+        httpReq += "Authorization: Basic %s\r\n" % base64.b64encode(":%s" % bingKey)
+        httpReq += "User_Agent: Blackhat Python\r\n\r\n"
 
         # send http request to microsoft servers
-        json_body = self._callbacks.makeHttpRequest("api.datamarket.azure.com", 443, True, http_request).tostring()
-
-        json_body = json_body.split("\r\n\r\n", 1)[1]
+        jsonBody = self._callbacks.makeHttpRequest("api.datamarket.azure.com", 443, True, httpReq).tostring()
+        # split off headers
+        jsonBody = jsonBody.split("\r\n\r\n", 1)[1]
 
         try:
-            r = json.loads(json_body)
+            r = json.loads(jsonBody)
             if len(r["d"]["results"]):
                 for site in r["d"]["results"]:
                     print("*" * 100)
